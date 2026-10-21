@@ -1,0 +1,50 @@
+[
+  {
+    "id": "rajesh_clopidogrel",
+    "vcf": "data/samples/rajesh_post_stent.vcf",
+    "patient": {
+      "patient_id": "PT001",
+      "patient_name": "Rajesh Kumar",
+      "age": 58,
+      "gender": "Male",
+      "indication": "ACS requiring clopidogrel after stent placement"
+    },
+    "expect": {
+      "phenotype_CYP2C19": "Poor Metabolizer",
+      "must_avoid": ["CLOPIDOGREL"],
+      "doctor_summary_contains": ["CYP2C19", "CLOPIDOGREL"]
+    }
+  },
+  {
+    "id": "priya_tamoxifen",
+    "vcf": "data/samples/priya_tamoxifen.vcf",
+    "patient": {
+      "patient_id": "PT002",
+      "patient_name": "Priya Sharma",
+      "age": 45,
+      "gender": "Female",
+      "indication": "Breast cancer requiring tamoxifen"
+    },
+    "expect": {
+      "phenotype_CYP2D6": "Poor Metabolizer",
+      "must_avoid": ["TAMOXIFEN"],
+      "doctor_summary_contains": ["CYP2D6", "TAMOXIFEN"]
+    }
+  },
+  {
+    "id": "arjun_statin",
+    "vcf": "data/samples/arjun_statin.vcf",
+    "patient": {
+      "patient_id": "PT003",
+      "patient_name": "Arjun Patel",
+      "age": 62,
+      "gender": "Male",
+      "indication": "Cardiac patient on statin therapy for hyperlipidemia"
+    },
+    "expect": {
+      "phenotype_SLCO1B1": "Poor Function",
+      "must_avoid": ["SIMVASTATIN"],
+      "doctor_summary_contains": ["SLCO1B1", "SIMVASTATIN"]
+    }
+  }
+]
