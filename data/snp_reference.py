@@ -10,9 +10,9 @@ PGX_SNPS: dict[str, dict[str, str]] = {
         "rs12248560": "*17",
     },
     "CYP2D6": {
-        "rs3892097": "*4",
-        "rs1065852": "*10",   # 100C>T (also present on *4); recorded, not used for calling
-        "rs28371725": "*41",  # 2988G>A; recorded, not used for calling (*5 is a gene deletion, not a SNP)
+        "rs3892097": "*4",    # 1846G>A, no function
+        "rs1065852": "*10",   # 100C>T, decreased function (NB: also tags *4 — see README panel scope)
+        "rs28371725": "*41",  # 2988G>A, decreased function (*5 is a gene deletion, not a SNP, so not called)
     },
     "SLCO1B1": {
         "rs4149056": "c.521C",  # T=ref, C=variant (decreased function)
@@ -77,6 +77,10 @@ def infer_cyp2c19(star_counts: dict[str, int]) -> str:
         return "*3/*3"
     if n2 == 1 and n3 == 1:
         return "*2/*3"
+    # *2 (no function) + *17 (increased function): CPIC classifies as Intermediate.
+    # Must be checked before the lone *2 / *17 branches, or the *17 is silently lost.
+    if n2 == 1 and n17 == 1:
+        return "*2/*17"
     if n2 == 1:
         return "*1/*2"
     if n3 == 1:
@@ -88,13 +92,32 @@ def infer_cyp2c19(star_counts: dict[str, int]) -> str:
     return "*1/*1"
 
 
+# CYP2D6 allele activity values (CPIC / Caudle et al. 2020 activity-score standard).
+_CYP2D6_ACTIVITY = {"*1": 1.0, "*2": 1.0, "*4": 0.0, "*10": 0.25, "*41": 0.5}
+
+
 def infer_cyp2d6(star_counts: dict[str, int]) -> str:
-    n4 = star_counts.get("*4", 0)
-    if n4 >= 2:
-        return "*4/*4"
-    if n4 == 1:
-        return "*1/*4"
-    return "*1/*1"
+    """
+    Build a CYP2D6 diplotype from the panel's reduced/no-function alleles
+    (*4, *10, *41), filling the remaining copies with *1.
+
+    Covers *10 and *41 (common decreased-function alleles, frequent in South/East
+    Asian patients), not only *4 — a *10/*10 or *10/*41 patient is an Intermediate
+    Metaboliser, not Normal. See the knowledge base for the diplotype-to-phenotype
+    map and the README panel-scope note for limits (e.g. rs1065852 also tags *4).
+    """
+    variant_alleles: list[str] = []
+    for star in ("*4", "*10", "*41"):
+        variant_alleles.extend([star] * star_counts.get(star, 0))
+    variant_alleles = variant_alleles[:2]
+    alleles = variant_alleles + ["*1"] * (2 - len(variant_alleles))
+
+    def _num(a: str) -> int:
+        s = a.lstrip("*")
+        return int(s) if s.isdigit() else 999
+
+    alleles.sort(key=lambda a: (0 if a == "*1" else 1, _num(a)))
+    return "/".join(alleles)
 
 
 def infer_slco1b1(variant_count: int) -> str:
@@ -122,15 +145,32 @@ def infer_cyp2c9(star_counts: dict[str, int]) -> str:
 
 
 def infer_tpmt(star_counts: dict[str, int]) -> str:
-    n3a = star_counts.get("*3A", 0)
-    n3c = star_counts.get("*3C", 0)
-    if n3a >= 2:
-        return "*3A/*3A"
-    if n3c >= 2:
-        return "*3C/*3C"
-    if n3a == 1:
-        return "*1/*3A"
-    return "*1/*1"
+    """
+    TPMT diplotype from rs1800460 (*3A/*3B-defining) and rs1142345 (*3C-defining).
+
+    A lone rs1142345 variant (*3C) must NOT be called *1/*1 — that is the dangerous
+    false-negative: a TPMT Intermediate Metaboliser told azathioprine is standard-dose
+    safe. Simplification (see README panel scope): when both SNPs carry equal variant
+    counts they are assumed in cis as the *3A haplotype; an rs1800460-only variant is
+    labelled *3A here (true *3B is not separately reported). Any one no-function allele
+    is Intermediate; two is Low activity.
+    """
+    n3a = star_counts.get("*3A", 0)   # rs1800460
+    n3c = star_counts.get("*3C", 0)   # rs1142345
+
+    if n3a == 0 and n3c == 0:
+        return "*1/*1"
+    # Both variants present at equal count → assumed cis (*3A haplotype).
+    if n3a >= 1 and n3c >= 1 and n3a == n3c:
+        return "*1/*3A" if n3a == 1 else "*3A/*3A"
+    # rs1142345 (*3C) alone — the branch the original caller was missing.
+    if n3c >= 1 and n3a == 0:
+        return "*1/*3C" if n3c == 1 else "*3C/*3C"
+    # rs1800460 alone.
+    if n3a >= 1 and n3c == 0:
+        return "*1/*3A" if n3a == 1 else "*3A/*3A"
+    # Unequal counts of the two variants → compound no-function, Low activity.
+    return "*3A/*3C"
 
 
 def genotype_from_parsed_snps(snps: dict[str, tuple[str, str, str]]) -> dict[str, str]:
