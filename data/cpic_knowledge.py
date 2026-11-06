@@ -7,6 +7,7 @@ CPIC_DATA = {
             "*2/*2": "Poor Metabolizer",
             "*2/*3": "Poor Metabolizer",
             "*3/*3": "Poor Metabolizer",
+            "*2/*17": "Intermediate Metabolizer",
             "*1/*17": "Rapid Metabolizer",
             "*17/*17": "Ultrarapid Metabolizer",
         },
@@ -29,23 +30,33 @@ CPIC_DATA = {
         "variants": {
             "*1/*1": "Normal Metabolizer",
             "*1/*2": "Normal Metabolizer",
+            "*1/*10": "Normal Metabolizer",
+            "*1/*41": "Normal Metabolizer",
             "*4/*4": "Poor Metabolizer",
             "*4/*5": "Poor Metabolizer",
             "*1/*4": "Intermediate Metabolizer",
+            "*4/*10": "Intermediate Metabolizer",
+            "*4/*41": "Intermediate Metabolizer",
+            "*10/*10": "Intermediate Metabolizer",
+            "*10/*41": "Intermediate Metabolizer",
+            "*41/*41": "Intermediate Metabolizer",
             "*1xN/*1": "Ultrarapid Metabolizer",
         },
         "drugs": {
             "codeine": {
-                "Poor Metabolizer": {"risk": "MODERATE", "recommendation": "Avoid codeine. Use non-opioid analgesics.", "rationale": "Reduced conversion to morphine."},
+                "Poor Metabolizer": {"risk": "MODERATE", "recommendation": "Avoid codeine. Use non-opioid analgesics.", "rationale": "Reduced conversion to morphine — inadequate analgesia."},
+                "Intermediate Metabolizer": {"risk": "MODERATE", "recommendation": "Use with caution; monitor analgesia. Consider a non-tramadol/non-codeine analgesic if response is poor.", "rationale": "Reduced CYP2D6 activity may lower morphine formation and analgesia."},
                 "Normal Metabolizer": {"risk": "LOW", "recommendation": "Use standard dose codeine.", "rationale": "Normal conversion to morphine."},
                 "Ultrarapid Metabolizer": {"risk": "HIGH", "recommendation": "CONTRAINDICATED. Avoid codeine entirely.", "rationale": "Rapid conversion. Risk of respiratory depression."}
             },
             "tamoxifen": {
                 "Poor Metabolizer": {"risk": "HIGH", "recommendation": "Avoid tamoxifen. Consider aromatase inhibitor.", "rationale": "Reduced conversion to active endoxifen."},
+                "Intermediate Metabolizer": {"risk": "MODERATE", "recommendation": "Consider aromatase inhibitor, or higher-dose tamoxifen with specialist input.", "rationale": "Partially reduced endoxifen formation — intermediate recurrence risk."},
                 "Normal Metabolizer": {"risk": "LOW", "recommendation": "Use standard dose tamoxifen 20mg/day.", "rationale": "Normal conversion to endoxifen."}
             },
             "metoprolol": {
                 "Poor Metabolizer": {"risk": "MODERATE", "recommendation": "Reduce dose by 50-75%. Monitor heart rate.", "rationale": "Increased drug exposure."},
+                "Intermediate Metabolizer": {"risk": "MODERATE", "recommendation": "Monitor heart rate and blood pressure; reduce dose if bradycardia or hypotension.", "rationale": "Moderately increased metoprolol exposure."},
                 "Normal Metabolizer": {"risk": "LOW", "recommendation": "Use standard dose.", "rationale": "Normal metabolism."}
             }
         }
@@ -72,8 +83,10 @@ CPIC_DATA = {
         "variants": {
             "*1/*1": "Normal Activity",
             "*1/*3A": "Intermediate Activity",
+            "*1/*3C": "Intermediate Activity",
             "*3A/*3A": "Low Activity",
             "*3C/*3C": "Low Activity",
+            "*3A/*3C": "Low Activity",
         },
         "drugs": {
             "azathioprine": {

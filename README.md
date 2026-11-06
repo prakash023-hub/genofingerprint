@@ -69,6 +69,20 @@ gcloud run deploy genofingerprint --source . --region asia-south1 \
 - The fingerprint image is a demo of the bedside workflow; no biometric matching is performed.
 - 5-gene panel; hospital EHR integration is future work.
 
+### Panel scope — which alleles are called
+
+The caller is transparent about exactly what it genotypes. Alleles outside this list are not detected and default to the reference (`*1`); document this limit before any real use.
+
+| Gene | SNPs used | Alleles called | Notes |
+|---|---|---|---|
+| CYP2C19 | rs4244285, rs4986893, rs12248560 | `*2`, `*3`, `*17` | `*2/*17` is reported as Intermediate (ambiguous diplotype, not collapsed to `*1/*2`) |
+| CYP2D6 | rs3892097, rs1065852, rs28371725 | `*4`, `*10`, `*41` | Phenotype via the CPIC/Caudle 2020 activity-score standard. `*5` (gene deletion) and copy-number are not detected. rs1065852 also tags `*4`, so a `*10` call co-occurring with `*4` is approximate |
+| CYP2C9 | rs1799853, rs1057910 | `*2`, `*3` | — |
+| SLCO1B1 | rs4149056 | `c.521T>C` | — |
+| TPMT | rs1800460, rs1142345 | `*3A`, `*3B`/`*3C` | Unphased: equal variant counts are assumed in cis as `*3A`; an rs1800460-only variant is labelled `*3A` (true `*3B` is not separately reported) |
+
+Phasing is not resolved from unphased VCF genotypes; compound-heterozygous calls are a documented simplification. This is a research/education demo, not a validated diagnostic.
+
 ## Author
 
 **Prakash Raj K** — M.Pharm (Industrial Pharmacy), Executive PG in Data Science & AI (IIIT-Bangalore)
