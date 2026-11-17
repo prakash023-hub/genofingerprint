@@ -170,7 +170,7 @@
     },
     "expect": {
       "phenotypes": {
-        "TPMT": "Low Activity",
+        "TPMT": "Poor Metabolizer",
         "CYP2D6": "Not tested"
       },
       "recommendations": {},

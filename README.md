@@ -55,7 +55,7 @@ The risk categories are report priorities assigned by the application. They are 
 | --- | --- | --- |
 | Clopidogrel | [CPIC 2022, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC9287492/) | Adult ACS/PCI only. Other cardiovascular and neurovascular contexts require separate review. |
 | Warfarin | [CPIC 2017](https://pmc.ncbi.nlm.nih.gov/articles/PMC5546947/) | Review-only. CYP2C9 alone does not supply VKORC1, the applicable additional variants or the clinical inputs of the dosing algorithm. |
-| Metoprolol | [CPIC 2024, Table 2](https://www.ncbi.nlm.nih.gov/books/NBK425389/table/metoprolol.T.recommendations_from_the_cl/) | PM review of starting dose and titration; IM and NM standard initiation guidance; UM withheld. |
+| Metoprolol | [CPIC 2024, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC11502236/) | PM review of starting dose and titration; IM and NM standard initiation guidance; UM withheld. |
 | Simvastatin and atorvastatin | [CPIC 2022, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC9035072/) | SLCO1B1-directed review. Simvastatin poor function favors an alternative. Atorvastatin poor and decreased function have different starting-dose limits. |
 | Codeine | [CPIC 2021, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC8249478/) | Adult CYP2D6 PGx findings. PM and UM have separate concerns; other label restrictions and comorbidities require review. |
 | Tamoxifen | [CPIC 2018, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC5931215/) | Score-zero branch in adult adjuvant therapy for early-stage ER-positive disease. The historical activity-score and allele-specific rows need specialist review before implementation. |

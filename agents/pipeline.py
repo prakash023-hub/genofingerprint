@@ -117,8 +117,8 @@ def risk_scorer_agent(state: GenomicState) -> dict:
         phenotype = state["phenotypes"][gene]
         if drug in {"warfarin", "azathioprine"}:
             reason = REVIEW_REASONS[drug]
-            if drug == "azathioprine" and phenotype in {"Low Activity", "Intermediate Activity"}:
-                reason = f"TPMT {phenotype.lower()} raises myelosuppression risk. " + reason
+            if drug == "azathioprine" and phenotype in {"Poor Metabolizer", "Intermediate Metabolizer"}:
+                reason = f"TPMT {phenotype.lower()} status raises myelosuppression risk. " + reason
             if drug == "warfarin" and phenotype in {"Poor Metabolizer", "Intermediate Metabolizer"}:
                 reason = f"CYP2C9 {phenotype.lower()} status can reduce clearance. " + reason
         elif not isinstance(state["age"], (int, float)) or not 18 <= state["age"] <= 120:
