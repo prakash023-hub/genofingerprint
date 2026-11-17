@@ -9,7 +9,8 @@ import base64
 import os
 import sys
 import tempfile
-import traceback
+import html
+from pathlib import Path
 
 import gradio as gr
 
@@ -19,12 +20,13 @@ sys.path.insert(0, ROOT)
 from agents.pipeline import run_analysis
 from agents.claude_narrator import generate_narrative_safe
 from agents.qa_agent import ask_clinical_question
-from data.vcf_parser import parse_vcf_file
+from data.cpic_knowledge import GUIDELINES, VARIANTS
+from data.snp_reference import DEMO_SCENARIOS
+from data.vcf_parser import VCFValidationError, parse_demo_file, parse_vcf_file
 from export.pdf_report import build_report_pdf
 from ui.render import (
     DISCLAIMER,
     render_fingerprint_card,
-    render_population_notes,
     render_recommendations,
     render_vcf_log,
     scanner_active_html,
@@ -47,7 +49,6 @@ DEMO_PATIENTS = {
         "age": 58,
         "gender": "Male",
         "indication": "ACS requiring clopidogrel after stent placement",
-        "genotype": {"CYP2C19": "*2/*2", "CYP2D6": "*1/*1", "SLCO1B1": "c.521TC", "CYP2C9": "*1/*3"},
     },
     "Priya Sharma — Breast Cancer (VCF)": {
         "vcf": "priya_tamoxifen.vcf",
@@ -56,7 +57,6 @@ DEMO_PATIENTS = {
         "age": 45,
         "gender": "Female",
         "indication": "Breast cancer requiring tamoxifen",
-        "genotype": {"CYP2D6": "*4/*4", "CYP2C9": "*1/*1", "TPMT": "*1/*1"},
     },
     "Arjun Patel — Statin (VCF)": {
         "vcf": "arjun_statin.vcf",
@@ -65,17 +65,16 @@ DEMO_PATIENTS = {
         "age": 62,
         "gender": "Male",
         "indication": "Cardiac patient on statin therapy for hyperlipidemia",
-        "genotype": {"SLCO1B1": "c.521CC", "CYP2C19": "*1/*17", "CYP2C9": "*1/*1"},
     },
 }
 
-GENE_VARIANTS = {
-    "CYP2C19": ["*1/*1", "*1/*2", "*1/*3", "*2/*2", "*2/*3", "*3/*3", "*1/*17", "*17/*17"],
-    "CYP2D6": ["*1/*1", "*1/*2", "*4/*4", "*4/*5", "*1/*4", "*1xN/*1"],
-    "SLCO1B1": ["c.521TT", "c.521TC", "c.521CC"],
-    "TPMT": ["*1/*1", "*1/*3A", "*3A/*3A", "*3C/*3C"],
-    "CYP2C9": ["*1/*1", "*1/*2", "*1/*3", "*2/*3", "*3/*3"],
-}
+GENE_VARIANTS = {gene: list(variants) for gene, variants in VARIANTS.items()}
+GENE_VARIANTS["CYP2D6"].append("*1/*1x2")
+CONTEXT_CHOICES = [
+    ("Other or unspecified", ""),
+    ("Acute coronary syndrome or PCI", "acs_pci"),
+    ("Adjuvant treatment of early-stage ER-positive breast cancer", "early_stage_er_positive"),
+]
 
 SAMPLE_VCFS = [
     os.path.join(SAMPLES_DIR, "rajesh_post_stent.vcf"),
@@ -95,12 +94,10 @@ button.primary { background: linear-gradient(135deg,#0284c7,#06b6d4) !important;
 .contain { background: #0f172a !important; border: 1px solid #1e293b !important; border-radius: 12px !important; }
 """
 
-CHAT_WELCOME = [
-    [
-        "Welcome to GenoFingerprint Clinical Q&A",
-        "**How to use:**\n1. Go to **Bedside Device** tab → click **Run Rajesh Post-Stent Case**\n2. Come back here and ask e.g. *Why avoid clopidogrel?*\n\nI'll answer using CPIC guidelines + that patient's scan data.",
-    ]
-]
+CHAT_WELCOME = [{
+    "role": "assistant",
+    "content": "Ask about a supported medication or gene to see its guideline. Run a scan to see recorded findings.",
+}]
 
 
 def _fingerprint_b64(path) -> str | None:
@@ -120,10 +117,10 @@ def load_demo(name):
     if not name or name.startswith("Select"):
         return (
             "", "", 0, "Male", "", "Not tested", "Not tested", "Not tested", "Not tested", "Not tested",
-            None,
+            None, [], "",
         )
     p = DEMO_PATIENTS.get(name, {})
-    g = p.get("genotype", {})
+    scenario = DEMO_SCENARIOS.get(p.get("patient_id"), {})
     vcf_path = os.path.join(SAMPLES_DIR, p["vcf"]) if p.get("vcf") else None
     return (
         p.get("patient_name", ""),
@@ -131,12 +128,14 @@ def load_demo(name):
         p.get("age", 0),
         p.get("gender", "Male"),
         p.get("indication", ""),
-        g.get("CYP2C19", "Not tested"),
-        g.get("CYP2D6", "Not tested"),
-        g.get("SLCO1B1", "Not tested"),
-        g.get("TPMT", "Not tested"),
-        g.get("CYP2C9", "Not tested"),
+        "Not tested",
+        "Not tested",
+        "Not tested",
+        "Not tested",
+        "Not tested",
         vcf_path if vcf_path and os.path.isfile(vcf_path) else None,
+        scenario.get("medications", []),
+        scenario.get("clinical_context", ""),
     )
 
 
@@ -150,6 +149,7 @@ def _resolve_vcf_path(vcf_file, demo_name):
         path = vcf_file if isinstance(vcf_file, str) else getattr(vcf_file, "name", None)
         if path and os.path.isfile(path):
             return path
+        raise VCFValidationError("The uploaded VCF is unavailable.")
     if demo_name and not demo_name.startswith("Select"):
         p = DEMO_PATIENTS.get(demo_name, {})
         if p.get("vcf"):
@@ -189,6 +189,8 @@ def run_bedside_scan(
     tpmt,
     cyp2c9,
     report_language,
+    medications=None,
+    clinical_context="",
 ):
     try:
         logs: list[str] = []
@@ -198,17 +200,26 @@ def run_bedside_scan(
 
         vcf_path = _resolve_vcf_path(vcf_file, demo_name)
         if vcf_path:
-            genotype, meta, logs = parse_vcf_file(vcf_path)
-            data_source = "vcf"
-            logs.insert(0, f"Lab VCF parsed: {os.path.basename(vcf_path)}")
-
-        if not genotype:
+            demo = DEMO_PATIENTS.get(demo_name)
+            bundled = Path(SAMPLES_DIR, demo["vcf"]) if demo else None
+            # Gradio can copy a bundled file into its cache. Compare bounded bytes.
+            if bundled and os.path.getsize(vcf_path) == bundled.stat().st_size and (
+                Path(vcf_path).read_bytes() == bundled.read_bytes()
+            ):
+                genotype, meta, logs = parse_demo_file(bundled, demo["patient_id"])
+                data_source = "synthetic_vcf_plus_lab" if meta.get("confirmed_genotype") else "synthetic_vcf"
+            else:
+                genotype, meta, logs = parse_vcf_file(vcf_path)
+                data_source = "vcf"
+        else:
             genotype = _genotype_from_dropdowns(cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9)
+            if genotype:
+                logs.append("Manually entered diplotypes should come from a characterized lab result.")
 
         if not genotype:
             return (
                 scanner_idle_html(),
-                "<div style='color:#f87171;padding:16px;'>⚠️ Upload a VCF or select a demo case, then SCAN.</div>",
+                "<div style='color:#f87171;padding:16px;'>Upload a synthetic VCF, select a demo or enter a lab-characterized diplotype.</div>",
                 "", "", DISCLAIMER, render_vcf_log(logs), None, None,
             )
 
@@ -225,10 +236,13 @@ def run_bedside_scan(
             "indication": meta.get("indication") or indication or "Pharmacogenomics screening",
             "genotype": genotype,
             "data_source": data_source,
+            "medications": meta.get("medications", []) if medications is None else medications,
+            "clinical_context": clinical_context or (meta.get("clinical_context", "") if medications is None else ""),
         }
 
         result = run_analysis(patient_data)
-        result["data_source"] = data_source
+        if not result["report_ready"]:
+            raise VCFValidationError(result["error"])
         lang = LANG_MAP.get(report_language, "English")
         narrative = generate_narrative_safe(result, lang)
         result["narrative"] = narrative
@@ -238,25 +252,28 @@ def run_bedside_scan(
             patient_data["patient_name"], result["fingerprint_id"], biometric, fp_b64
         )
         fp_html = render_fingerprint_card(result, narrative)
-        rec_html = render_recommendations(result["recommendations"])
-        pop_html = render_population_notes(result.get("population_notes", []))
+        rec_html = render_recommendations(result["recommendations"], result["assessment_notes"])
+        pop_html = ""
 
         pdf_path = None
         try:
             pdf_bytes = build_report_pdf(result, narrative)
-            fd, pdf_path = tempfile.mkstemp(suffix=".pdf", prefix=f"genofingerprint_{result['fingerprint_id']}_")
+            fd, pdf_path = tempfile.mkstemp(suffix=".pdf", prefix="genofingerprint_")
             os.close(fd)
             with open(pdf_path, "wb") as f:
                 f.write(pdf_bytes)
         except Exception:
             pdf_path = None
 
+        if pdf_path is None:
+            logs.append("PDF export failed. The on-screen report is available.")
         return scanner, fp_html, rec_html, pop_html, DISCLAIMER, render_vcf_log(logs), result, pdf_path
 
-    except Exception as e:
+    except Exception as exc:
+        message = str(exc) if isinstance(exc, VCFValidationError) else "Unable to complete this scan."
         return (
             scanner_idle_html(),
-            f"<div style='color:#f87171;padding:16px;'>Error: {e}</div>",
+            f"<div style='color:#f87171;padding:16px;'>Error: {html.escape(message)}</div>",
             "", "", DISCLAIMER, "", None, None,
         )
 
@@ -266,13 +283,8 @@ def chat_ask(message, history, analysis_state, report_language):
         return history, ""
     lang = LANG_MAP.get(report_language, "English")
     answer = ask_clinical_question(message, analysis_state, lang)
-    history = history + [[message, answer]]
+    history = (history or []) + [{"role": "user", "content": message}, {"role": "assistant", "content": answer}]
     return history, ""
-
-
-def warmup_rag():
-    from agents.rag_store import get_rag_collection
-    get_rag_collection()
 
 
 with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary_hue="cyan")) as app:
@@ -284,7 +296,7 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
         <div style="font-size:40px;font-weight:900;background:linear-gradient(90deg,#22d3ee,#818cf8);
              -webkit-background-clip:text;-webkit-text-fill-color:transparent;">🧬 GenoFingerprint AI</div>
         <div style="font-size:14px;color:#94a3b8;max-width:780px;margin:8px auto 0;">
-            Bedside pharmacogenomics · Any lab VCF · CPIC rules · Doctor + patient reports in 8 languages</div>
+            Bedside pharmacogenomics · Single-sample GRCh38 research panel · CPIC rules · Doctor + patient reports in 8 languages</div>
     </div>""")
 
     with gr.Tabs():
@@ -301,14 +313,14 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
                     gr.Markdown("### ⚡ Quick demo")
                     jipmer_btn = gr.Button("▶ Run Rajesh Post-Stent Case", variant="secondary", size="lg")
 
-                    gr.Markdown("### Step 1 — Lab VCF")
+                    gr.Markdown("### Step 1 — Research VCF\nUse synthetic files, names and images.")
                     demo_dd = gr.Dropdown(
                         choices=["Select demo case..."] + list(DEMO_PATIENTS.keys()),
                         label="Demo cases (auto-loads anonymized VCF)",
                         value="Select demo case...",
                     )
                     vcf_upload = gr.File(
-                        label="Or upload VCF from sequencing lab",
+                        label="Or upload a synthetic research VCF",
                         file_types=[".vcf"],
                         type="filepath",
                     )
@@ -327,7 +339,7 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
                         height=160,
                     )
 
-                    gr.Markdown("### Step 3 — Patient (auto-filled from VCF)")
+                    gr.Markdown("### Step 3 — Patient (auto-filled for demo cases)")
                     pname = gr.Textbox(label="Patient Name")
                     with gr.Row():
                         pid = gr.Textbox(label="Patient ID")
@@ -335,7 +347,9 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
                     pgender = gr.Radio(["Male", "Female", "Other"], label="Gender", value="Male")
                     pind = gr.Textbox(label="Clinical Indication", lines=2)
 
-                    with gr.Accordion("Manual gene override", open=False):
+                    meds = gr.Dropdown(list(GUIDELINES), multiselect=True, value=[], label="Medications to assess")
+                    context = gr.Dropdown(CONTEXT_CHOICES, value="", label="Guideline context")
+                    with gr.Accordion("Lab-confirmed diplotypes (used without a VCF)", open=False):
                         cyp2c19 = gr.Dropdown(["Not tested"] + GENE_VARIANTS["CYP2C19"], label="CYP2C19", value="Not tested")
                         cyp2d6 = gr.Dropdown(["Not tested"] + GENE_VARIANTS["CYP2D6"], label="CYP2D6", value="Not tested")
                         slco1b1 = gr.Dropdown(["Not tested"] + GENE_VARIANTS["SLCO1B1"], label="SLCO1B1", value="Not tested")
@@ -361,7 +375,7 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
                 Ask CPIC / pharmacogenomics questions. Run a <b>Bedside scan</b> first for patient-specific answers.
               </div>
             </div>""")
-            chatbot = gr.Chatbot(label="Clinical Assistant", height=440, value=CHAT_WELCOME)
+            chatbot = gr.Chatbot(label="Clinical Assistant", height=440, value=CHAT_WELCOME, type="messages")
             with gr.Row():
                 chat_in = gr.Textbox(
                     label="Question",
@@ -373,7 +387,7 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
                 examples=[
                     "Why should this patient avoid clopidogrel?",
                     "What alternative antiplatelet does CPIC recommend for CYP2C19 poor metabolizers?",
-                    "Explain CYP2C19 poor metabolizer prevalence globally vs South Asia.",
+                    "Show the CYP2C19 and clopidogrel guideline.",
                     "Is this tool CDSCO approved?",
                     "Summarize risks in Spanish for the patient.",
                 ],
@@ -382,24 +396,24 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
 
     jipmer_btn.click(
         run_jipmer_demo,
-        outputs=[demo_dd, pname, pid, page, pgender, pind, cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, vcf_upload],
+        outputs=[demo_dd, pname, pid, page, pgender, pind, cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, vcf_upload, meds, context],
     ).then(
         run_bedside_scan,
-        inputs=[fingerprint_in, vcf_upload, demo_dd, pname, pid, page, pgender, pind, cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, report_lang],
+        inputs=[fingerprint_in, vcf_upload, demo_dd, pname, pid, page, pgender, pind, cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, report_lang, meds, context],
         outputs=[scanner_status, fingerprint_out, recs_out, pop_out, disc_out, vcf_log_out, analysis_state, pdf_out],
     )
 
     demo_dd.change(
         load_demo,
         inputs=[demo_dd],
-        outputs=[pname, pid, page, pgender, pind, cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, vcf_upload],
+        outputs=[pname, pid, page, pgender, pind, cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, vcf_upload, meds, context],
     )
 
     scan_btn.click(
         run_bedside_scan,
         inputs=[
             fingerprint_in, vcf_upload, demo_dd, pname, pid, page, pgender, pind,
-            cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, report_lang,
+            cyp2c19, cyp2d6, slco1b1, tpmt, cyp2c9, report_lang, meds, context,
         ],
         outputs=[scanner_status, fingerprint_out, recs_out, pop_out, disc_out, vcf_log_out, analysis_state, pdf_out],
     )
@@ -407,7 +421,6 @@ with gr.Blocks(title="GenoFingerprint AI", css=CSS, theme=gr.themes.Base(primary
     chat_btn.click(chat_ask, inputs=[chat_in, chatbot, analysis_state, report_lang], outputs=[chatbot, chat_in])
     chat_in.submit(chat_ask, inputs=[chat_in, chatbot, analysis_state, report_lang], outputs=[chatbot, chat_in])
 
-    app.load(warmup_rag)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", os.environ.get("GRADIO_SERVER_PORT", "7860")))

@@ -7,12 +7,23 @@
       "patient_name": "Rajesh Kumar",
       "age": 58,
       "gender": "Male",
-      "indication": "ACS requiring clopidogrel after stent placement"
+      "indication": "ACS requiring clopidogrel after stent placement",
+      "medications": [
+        "clopidogrel"
+      ],
+      "clinical_context": "acs_pci"
     },
     "expect": {
-      "phenotype_CYP2C19": "Poor Metabolizer",
-      "must_avoid": ["CLOPIDOGREL"],
-      "doctor_summary_contains": ["CYP2C19", "CLOPIDOGREL"]
+      "phenotypes": {
+        "CYP2C19": "Poor Metabolizer"
+      },
+      "recommendations": {
+        "CLOPIDOGREL": [
+          "CYP2C19",
+          "AVOID",
+          "HIGH"
+        ]
+      }
     }
   },
   {
@@ -23,13 +34,25 @@
       "patient_name": "Priya Sharma",
       "age": 45,
       "gender": "Female",
-      "indication": "Breast cancer requiring tamoxifen"
+      "indication": "Breast cancer requiring tamoxifen",
+      "medications": [
+        "tamoxifen"
+      ],
+      "clinical_context": "early_stage_er_positive"
     },
     "expect": {
-      "phenotype_CYP2D6": "Poor Metabolizer",
-      "must_avoid": ["TAMOXIFEN"],
-      "doctor_summary_contains": ["CYP2D6", "TAMOXIFEN"]
-    }
+      "phenotypes": {
+        "CYP2D6": "Poor Metabolizer"
+      },
+      "recommendations": {
+        "TAMOXIFEN": [
+          "CYP2D6",
+          "AVOID",
+          "HIGH"
+        ]
+      }
+    },
+    "use_synthetic_lab_result": true
   },
   {
     "id": "arjun_statin",
@@ -39,12 +62,129 @@
       "patient_name": "Arjun Patel",
       "age": 62,
       "gender": "Male",
-      "indication": "Cardiac patient on statin therapy for hyperlipidemia"
+      "indication": "Cardiac patient on statin therapy for hyperlipidemia",
+      "medications": [
+        "simvastatin",
+        "atorvastatin"
+      ],
+      "clinical_context": ""
     },
     "expect": {
-      "phenotype_SLCO1B1": "Poor Function",
-      "must_avoid": ["SIMVASTATIN"],
-      "doctor_summary_contains": ["SLCO1B1", "SIMVASTATIN"]
+      "phenotypes": {
+        "SLCO1B1": "Poor Function"
+      },
+      "recommendations": {
+        "SIMVASTATIN": [
+          "SLCO1B1",
+          "AVOID",
+          "HIGH"
+        ],
+        "ATORVASTATIN": [
+          "SLCO1B1",
+          "CAUTION",
+          "MODERATE"
+        ]
+      }
+    }
+  },
+  {
+    "id": "normal_lab_diplotype",
+    "patient": {
+      "age": 42,
+      "medications": [
+        "clopidogrel"
+      ],
+      "clinical_context": "acs_pci",
+      "genotype": {
+        "CYP2C19": "*1/*1"
+      }
+    },
+    "expect": {
+      "phenotypes": {
+        "CYP2C19": "Normal Metabolizer"
+      },
+      "recommendations": {
+        "CLOPIDOGREL": [
+          "CYP2C19",
+          "USE",
+          "LOW"
+        ]
+      }
+    }
+  },
+  {
+    "id": "snp_only_cyp2d6",
+    "vcf": "data/samples/priya_tamoxifen.vcf",
+    "patient": {
+      "patient_id": "PT002",
+      "patient_name": "Priya Sharma",
+      "age": 45,
+      "gender": "Female",
+      "indication": "Breast cancer requiring tamoxifen",
+      "medications": [
+        "tamoxifen"
+      ],
+      "clinical_context": "early_stage_er_positive"
+    },
+    "expect": {
+      "phenotypes": {
+        "CYP2D6": "Indeterminate"
+      },
+      "recommendations": {},
+      "unassessed": [
+        "TAMOXIFEN"
+      ]
+    }
+  },
+  {
+    "id": "unsupported_star_allele",
+    "patient": {
+      "age": 43,
+      "genotype": {
+        "CYP2D6": "*1/*999"
+      },
+      "medications": [
+        "codeine"
+      ]
+    },
+    "expect": {
+      "phenotypes": {
+        "CYP2D6": "Indeterminate"
+      },
+      "recommendations": {},
+      "unassessed": [
+        "CODEINE"
+      ]
+    }
+  },
+  {
+    "id": "unsupported_gene_drug_pair",
+    "patient": {
+      "age": 43,
+      "genotype": {
+        "TPMT": "*3A/*3A"
+      },
+      "medications": [
+        "metoprolol"
+      ]
+    },
+    "expect": {
+      "phenotypes": {
+        "TPMT": "Low Activity",
+        "CYP2D6": "Not tested"
+      },
+      "recommendations": {},
+      "unassessed": [
+        "METOPROLOL"
+      ]
+    }
+  },
+  {
+    "id": "malformed_vcf",
+    "vcf_text": "not a VCF",
+    "patient": {},
+    "expect": {
+      "invalid_vcf": true
     }
   }
 ]
