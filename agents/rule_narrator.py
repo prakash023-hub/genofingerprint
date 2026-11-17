@@ -1,84 +1,32 @@
-"""Deterministic CPIC narratives — case-specific, no API key required."""
+"""Deterministic clinical and patient presentation of the same results."""
 
-from __future__ import annotations
-
-from data.i18n_fallback import DRUG_PATIENT_ALERTS, SUPPORTED_LANGUAGES
+from data.i18n_fallback import FALLBACK_PATIENT
 
 
-def _primary_rec(recommendations: list[dict]) -> dict | None:
-    for risk in ("HIGH", "MODERATE", "LOW"):
-        for rec in recommendations:
-            if rec.get("risk") == risk:
-                return rec
-    return recommendations[0] if recommendations else None
-
-
-def _alternatives_text(rec: dict) -> str:
-    detail = rec.get("detail", "")
-    if "prasugrel" in detail.lower() or "ticagrelor" in detail.lower():
-        return "Consider prasugrel or ticagrelor per CPIC antiplatelet guidance."
-    if "aromatase" in detail.lower():
-        return "Consider an aromatase inhibitor per CPIC breast cancer guidance."
-    if "pravastatin" in detail.lower() or "rosuvastatin" in detail.lower():
-        return "Consider pravastatin or rosuvastatin per CPIC statin guidance."
-    if "non-opioid" in detail.lower():
-        return "Consider non-opioid analgesics per CPIC opioid guidance."
-    return detail
-
-
-def generate_rule_narrative(result: dict, language: str = "English") -> dict:
-    lang = language if language in SUPPORTED_LANGUAGES else "English"
-    name = result.get("patient_name", "Patient")
-    age = result.get("age", "")
-    gender = result.get("gender", "")
-    indication = result.get("indication", "Pharmacogenomics review")
-    fp = result.get("fingerprint_id", "")
-    recs = result.get("recommendations", [])
-    high = [r for r in recs if r.get("risk") == "HIGH"]
-    primary = _primary_rec(recs)
-
-    gene_lines = ", ".join(
-        f"{g} {result['raw_genotype'].get(g, '?')} ({result['phenotypes'].get(g, '?')})"
-        for g in result.get("raw_genotype", {})
-    )
-
-    if primary:
-        doctor_summary = (
-            f"CPIC pharmacogenomics review for {name} ({age}Y {gender}), indication: {indication}. "
-            f"Key finding: {primary['gene']} {primary['variant']} → {primary['phenotype']}; "
-            f"{primary['drug']} — {primary['action']}. {primary['detail']} "
-            f"Rationale: {primary['rationale']} "
-            f"Profile: {gene_lines}. Fingerprint {fp}."
-        )
+def generate_rule_narrative(result: dict, language: str = "English", *, profile_first: bool = False) -> dict:
+    lang = language if language in FALLBACK_PATIENT else "English"
+    recommendations = result.get("recommendations", [])
+    profile = ", ".join(f"{gene} ({phenotype})" for gene, phenotype in result.get("phenotypes", {}).items())
+    profile_line = f"Panel findings: {profile or 'unavailable'}."
+    findings = [
+        f"{row['gene']} {row['phenotype']}: {row['drug']} {row['action']}. {row['detail']}"
+        for row in recommendations
+    ] or ["No drug action could be established for the selected scenario."]
+    if profile_first:
+        findings.insert(0, profile_line)
     else:
-        doctor_summary = (
-            f"CPIC review for {name}: no actionable high-risk interactions in this 5-gene panel "
-            f"for the stated indication. Profile: {gene_lines}."
-        )
+        findings.append(profile_line)
 
-    critical_alert = ""
-    if high:
-        drugs = ", ".join(r["drug"] for r in high)
-        critical_alert = f"ALERT: {drugs} — genomic contraindication or major CPIC action required."
-
-    drug_key = primary["drug"].lower() if primary else ""
-    patient_en = DRUG_PATIENT_ALERTS.get(drug_key, {}).get(
-        "English",
-        (
-            f"Your doctor reviewed your pharmacogenomics report ({fp}). "
-            f"Some medicines may need to be changed based on your genes — follow your clinician's advice."
-        ),
-    )
-    local = DRUG_PATIENT_ALERTS.get(drug_key, {}).get(lang, patient_en)
-    if lang == "English":
-        local = patient_en
-
+    high = [r["drug"] for r in recommendations if r["risk"] == "HIGH"]
+    actions = ", ".join(f"{row['drug']} [{row['action']}]" for row in recommendations)
+    if actions:
+        actions = "\n" + actions
     return {
-        "doctor_summary": doctor_summary,
-        "critical_alert": critical_alert,
-        "patient_explanation": patient_en,
-        "local_explanation": local,
-        "tamil_explanation": DRUG_PATIENT_ALERTS.get(drug_key, {}).get("Tamil", local),
+        "doctor_summary": " ".join(findings),
+        "critical_alert": f"High-priority review: {', '.join(high)}." if high else "",
+        "patient_explanation": FALLBACK_PATIENT["English"] + actions,
+        "local_explanation": FALLBACK_PATIENT[lang] + actions,
+        "tamil_explanation": FALLBACK_PATIENT["Tamil"] + actions if lang == "Tamil" else "",
         "language": lang,
         "narrator": "cpic_rules",
     }

@@ -1,59 +1,30 @@
 # 🧬 GenoFingerprint AI
 
-**CPIC pharmacogenomics clinical decision support** — lab VCF → star alleles → phenotypes → CPIC drug actions (AVOID / CAUTION / USE) → clinician PDF + patient explanation in 8 languages (incl. Tamil) → clinical Q&A.
+GenoFingerprint is a pharmacogenomics research and education prototype. Use synthetic inputs. The Gradio app shows panel findings, versioned CPIC rule excerpts, eight patient-language views, a clinician PDF and clinical Q&A.
 
-🔗 **Live demo:** https://genofingerprint-105254876763.asia-south1.run.app/
+The [hosted demo](https://genofingerprint-105254876763.asia-south1.run.app/) is separate from a local checkout.
 
-**30-second demo:** Bedside Device → **▶ Run Rajesh Post-Stent Case** → result: **CLOPIDOGREL — AVOID** (CYP2C19 \*2/\*2 poor metabolizer).
+**30-second demo:** In Bedside Device, choose **Run Rajesh Post-Stent Case**. The synthetic CYP2C19 \*2/\*2 result triggers **CLOPIDOGREL [AVOID]** in the selected ACS/PCI scenario.
 
----
+## Workflow
 
-## Why it matters
-
-The same drug dose can be safe for one patient and ineffective or toxic for another, depending on genes such as CYP2C19, CYP2D6, CYP2C9, SLCO1B1 and TPMT. CPIC publishes evidence-based guidelines for this, but they are rarely applied at the bedside. CYP2C19 poor metabolizers are more common in South Asian populations than in many others, so clopidogrel after a stent is a real risk in Indian hospitals.
-
-## Architecture
-
-```
-VCF / manual genotype
-        │
-        ▼
-┌──────────────── LangGraph pipeline (deterministic, CPIC rules) ────────────────┐
-│ parser → phenotype_mapper → risk_scorer → recommendation                       │
-│ (validate genes) (allele→phenotype) (indication-aware drug risk) (actions + ID) │
-└────────────────────────────────────────────────────────────────────────────────┘
-        │
-        ├─► Narrator: CPIC rule narrative (always) + Claude narrative (if API key set)
-        ├─► PDF report for the clinician
-        └─► Clinical Q&A agent: keyword RAG over CPIC knowledge + patient context → Claude
-```
-
-**Design choice:** drug recommendations come only from the deterministic CPIC rules engine. The LLM only *explains* results and answers questions — it is told never to invent recommendations. Without an API key, the app still works fully using rule-based narratives.
-
-## Tech stack
-
-| Layer | Tools |
-|---|---|
-| Orchestration | LangGraph (4-node StateGraph) |
-| LLM | Anthropic Claude (narration + Q&A), optional |
-| Retrieval | Lightweight keyword RAG over CPIC knowledge base |
-| UI | Gradio |
-| Reports | ReportLab PDF |
-| Deploy | Docker → Google Cloud Run (asia-south1) |
-
-**Genes:** CYP2C19 · CYP2D6 · CYP2C9 · SLCO1B1 · TPMT
-**Drugs:** clopidogrel, warfarin, metoprolol, simvastatin, atorvastatin, codeine, tamoxifen, azathioprine
+1. The VCF reader checks a single-sample GRCh38 file against panel markers. The manual workflow accepts a separately characterized lab diplotype.
+2. LangGraph validates inputs, maps phenotypes, checks explicit medication selection and guideline context, then constructs stable recommendations.
+3. The same rows drive the clinician summary, displayed actions, patient explanation, PDF and recorded findings in Q&A.
+4. Clinical Q&A retrieves versioned sources as general education and shows recorded findings in a separate section. Optional Claude integration chooses the order of two prewritten report sections. The API receives the requested language only, and a short timeout falls back to the deterministic order.
 
 ## Run locally
 
 ```bash
-git clone https://github.com/prakash023-hub/genofingerprint.git
-cd genofingerprint
-pip install -r requirements.txt
-cp .env.example .env          # optional: add ANTHROPIC_API_KEY
-python evals/run_evals.py     # golden-case evals, must pass 3/3
-python app.py                 # http://127.0.0.1:7860
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt pytest pypdf
+python -m pytest -q
+python -m evals.run_evals
+python app.py
 ```
+
+The default local URL is http://127.0.0.1:7860. For optional presentation ordering, set `ANTHROPIC_API_KEY` in the environment. Synthetic demos and regression tests work without credentials.
 
 ## Deploy (Cloud Run)
 
@@ -62,26 +33,36 @@ gcloud run deploy genofingerprint --source . --region asia-south1 \
   --allow-unauthenticated --set-env-vars ANTHROPIC_API_KEY=<your-key>
 ```
 
-## Scope & limitations
+## VCF coverage and limitations
 
-- Clinical decision **support** only — not CDSCO / FDA approved. A clinician must confirm all prescribing.
-- Demo VCFs are anonymized / synthetic — no real patient data.
-- The fingerprint image is a demo of the bedside workflow; no biometric matching is performed.
-- 5-gene panel; hospital EHR integration is future work.
+The parser accepts a single-sample VCF up to 10 MiB with a GRCh38 or hg38 reference declaration. Each used marker needs a valid, PASS diploid genotype and the expected forward-strand coordinate and alleles. Explicit reference genotypes are recorded at site level. Missing sites, no-calls, conflicting records, unsupported alleles and ambiguous phase can prevent gene-level interpretation. Known structural calls and unmodeled variants in nearby regions can block interpretation. The review windows and marker count are limited. The caller has no independent validation of read depth, genotype quality, assay coverage or copy number.
 
-### Panel scope — which alleles are called
+| Gene | Markers | VCF interpretation |
+| --- | --- | --- |
+| CYP2C19 | rs4244285, rs4986893, rs12248560 | Two resolved no-function marker haplotypes can support a panel poor-metabolizer result. Other results remain indeterminate unless independently characterized. |
+| CYP2D6 | rs3892097, rs1065852, rs28371725 | SNPs leave copy number, deletion, hybrid alleles and definitive diplotypes unresolved. The bundled Priya demo includes an explicit synthetic lab result. Uploading that VCF alone leaves CYP2D6 indeterminate. |
+| CYP2C9 | rs1799853, rs1057910 | Biallelic supported marker calls can be classified. A partial panel cannot establish `*1` or support warfarin dosing. |
+| SLCO1B1 | rs4149056 | Biallelic c.521C supports a panel poor-function result. c.521T/C or T/T alone leaves broader function unresolved. |
+| TPMT | rs1800460, rs1142345 | Two heterozygous sites require a common phase set. Both changes on one chromosome are a `*3A` marker pattern. Split across chromosomes, they support `*3B/*3C`. NUDT15 is outside the panel. |
 
-The caller is transparent about exactly what it genotypes. Alleles outside this list are not detected and default to the reference (`*1`); document this limit before any real use.
+Manual inputs represent lab-characterized results or explicitly synthetic data. A reference call at a tested SNP does not establish a normal-function reference haplotype across the gene. Phenoconversion, uncommon alleles, interactions, contraindications, transplant and oncology regimen details, and full population coverage require independent review. The optional fingerprint image is a visual demo prop. Use a synthetic image.
 
-| Gene | SNPs used | Alleles called | Notes |
-|---|---|---|---|
-| CYP2C19 | rs4244285, rs4986893, rs12248560 | `*2`, `*3`, `*17` | `*2/*17` is reported as Intermediate (ambiguous diplotype, not collapsed to `*1/*2`) |
-| CYP2D6 | rs3892097, rs1065852, rs28371725 | `*4`, `*10`, `*41` | Phenotype via the CPIC/Caudle 2020 activity-score standard. `*5` (gene deletion) and copy-number are not detected. rs1065852 also tags `*4`, so a `*10` call co-occurring with `*4` is approximate |
-| CYP2C9 | rs1799853, rs1057910 | `*2`, `*3` | — |
-| SLCO1B1 | rs4149056 | `c.521T>C` | — |
-| TPMT | rs1800460, rs1142345 | `*3A`, `*3B`/`*3C` | Unphased: equal variant counts are assumed in cis as `*3A`; an rs1800460-only variant is labelled `*3A` (true `*3B` is not separately reported) |
+## Guideline audit
 
-Phasing is not resolved from unphased VCF genotypes; compound-heterozygous calls are a documented simplification. This is a research/education demo, not a validated diagnostic.
+The risk categories are report priorities assigned by the application. They are independent of the CPIC strength-of-recommendation scale. `USE` denotes no PGx-driven adjustment in the selected scope. The app does not generate prescriptions.
+
+| Medication | Source | Implemented scope |
+| --- | --- | --- |
+| Clopidogrel | [CPIC 2022, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC9287492/) | Adult ACS/PCI only. Other cardiovascular and neurovascular contexts require separate review. |
+| Warfarin | [CPIC 2017](https://pmc.ncbi.nlm.nih.gov/articles/PMC5546947/) | Review-only. CYP2C9 alone does not supply VKORC1, the applicable additional variants or the clinical inputs of the dosing algorithm. |
+| Metoprolol | [CPIC 2024, Table 2](https://www.ncbi.nlm.nih.gov/books/NBK425389/table/metoprolol.T.recommendations_from_the_cl/) | PM review of starting dose and titration; IM and NM standard initiation guidance; UM withheld. |
+| Simvastatin and atorvastatin | [CPIC 2022, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC9035072/) | SLCO1B1-directed review. Simvastatin poor function favors an alternative. Atorvastatin poor and decreased function have different starting-dose limits. |
+| Codeine | [CPIC 2021, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC8249478/) | Adult CYP2D6 PGx findings. PM and UM have separate concerns; other label restrictions and comorbidities require review. |
+| Tamoxifen | [CPIC 2018, Table 2](https://pmc.ncbi.nlm.nih.gov/articles/PMC5931215/) | Score-zero branch in adult adjuvant therapy for early-stage ER-positive disease. The historical activity-score and allele-specific rows need specialist review before implementation. |
+| Azathioprine | [CPIC 2025 update](https://pmc.ncbi.nlm.nih.gov/articles/PMC12997511/) and [correction](https://pubmed.ncbi.nlm.nih.gov/42050374/) | Review-only. A qualified reviewer should verify the combined TPMT/NUDT15 branches and indication-specific starting regimens before any dosing implementation. |
+| Omeprazole | Outside this audit | Historical dosing logic is disabled pending review of the CPIC PPI guideline. |
+
+Spanish, French and Portuguese patient guidance fits the PDF font. Tamil, Hindi, Arabic and Chinese patient guidance is displayed in Gradio. The PDF provides English guidance and identifies where to read the local text.
 
 ## Author
 

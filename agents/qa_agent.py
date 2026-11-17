@@ -1,63 +1,29 @@
-"""Clinical Q&A agent — RAG + patient context + Claude."""
+"""Clinical Q&A with separate guideline references and recorded findings."""
 
-from __future__ import annotations
-
-import json
-import os
-from typing import Optional
-
-from agents.rag_store import retrieve_context, answer_with_rag_rules
+from agents.rag_store import retrieve_context
+from agents.rule_narrator import generate_rule_narrative
+from data.i18n_fallback import SUPPORTED_LANGUAGES
 
 
-def ask_clinical_question(question: str, analysis: Optional[dict] = None, language: str = "English") -> str:
+def ask_clinical_question(question: str, analysis: dict | None = None, language: str = "English") -> str:
     if not question or not question.strip():
-        return "Please enter a clinical or pharmacogenomics question."
+        return "Please enter a pharmacogenomics question."
+    context = retrieve_context(question)
+    lines = [
+        "**General education**",
+        "GenoFingerprint is a research prototype. Use these guideline references to review drug–gene evidence.",
+        context or "Enter a supported gene or medication to retrieve its guideline.",
+    ]
+    if not analysis or not analysis.get("report_ready"):
+        lines.append("**Patient findings**\nRun a successful scan to show recorded findings.")
+        return "\n\n".join(lines)
 
-    ctx = retrieve_context(question, n=6)
-    analysis_block = ""
-    if analysis:
-        analysis_block = json.dumps(
-            {
-                "patient": analysis.get("patient_name"),
-                "fingerprint_id": analysis.get("fingerprint_id"),
-                "phenotypes": analysis.get("phenotypes"),
-                "recommendations": analysis.get("recommendations"),
-                "summary": analysis.get("summary"),
-            },
-            indent=2,
-        )
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return answer_with_rag_rules(question, analysis, language)
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic()
-        model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
-        prompt = f"""You are GenoFingerprint AI clinical assistant at a hospital bedside device.
-Answer using ONLY the CPIC context and patient analysis below. If unsure, say so.
-Never invent drug recommendations beyond the analysis data.
-
-CPIC RAG CONTEXT:
-{ctx}
-
-CURRENT PATIENT ANALYSIS (if any):
-{analysis_block or "No patient scanned yet."}
-
-QUESTION: {question}
-
-Give a clear answer for a clinician or pharmacist. Mention CPIC basis.
-If the question asks for a patient summary in a specific language, add a short paragraph in that language at the end.
-Preferred report language for this session: {language}.
-Keep under 250 words."""
-
-        response = client.messages.create(
-            model=model,
-            max_tokens=800,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text.strip()
-    except Exception:
-        return answer_with_rag_rules(question, analysis, language)
+    lines.append("**Recorded findings from the current report**")
+    for gene, phenotype in analysis["phenotypes"].items():
+        lines.append(f"- {gene}: {phenotype} ({analysis['raw_genotype'][gene]})")
+    for row in analysis["recommendations"]:
+        lines.append(f"- **{row['drug']}** [{row['action']}] {row['detail']} — [{row['guideline']}]({row['source']})")
+    lines.extend(analysis.get("assessment_notes", []))
+    requested = next((lang for lang in SUPPORTED_LANGUAGES if lang.lower() in question.lower().split()), language)
+    lines.append(generate_rule_narrative(analysis, requested)["local_explanation"])
+    return "\n\n".join(lines)

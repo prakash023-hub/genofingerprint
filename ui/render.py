@@ -18,7 +18,7 @@ def scanner_idle_html() -> str:
         </div>
         <div style="color:#00d4ff;font-size:13px;letter-spacing:4px;font-weight:700;">GENOFINGERPRINT POC</div>
         <div style="color:#64748b;font-size:13px;margin-top:10px;">Place finger · Upload VCF · Tap SCAN</div>
-        <div style="color:#475569;font-size:11px;margin-top:6px;">CPIC panel · 5 genes · global + regional allele context</div>
+        <div style="color:#475569;font-size:11px;margin-top:6px;">GRCh38 research panel · 5 genes</div>
     </div>"""
 
 
@@ -60,7 +60,7 @@ def render_fingerprint_card(result: dict, narrative: dict) -> str:
         critical_banner = (
             "<div style='background:rgba(255,50,50,0.3);border:2px solid #ff3232;border-radius:8px;"
             "padding:10px;margin-top:12px;text-align:center;font-weight:bold;color:#ff6b6b;'>"
-            "⚠️ CRITICAL ALERT: HIGH-RISK DRUG INTERACTION DETECTED</div>"
+            "⚠️ HIGH-PRIORITY PHARMACOGENOMICS REVIEW</div>"
         )
 
     gene_tags = "".join(
@@ -71,10 +71,13 @@ def render_fingerprint_card(result: dict, narrative: dict) -> str:
     )
 
     vcf_badge = ""
-    if result.get("data_source") == "vcf":
+    source = result.get("data_source", "manual")
+    if source != "manual":
         vcf_badge = (
             "<span style='background:#22c55e;color:#000;padding:3px 10px;border-radius:6px;"
-            "font-size:10px;font-weight:700;margin-left:8px;'>✓ LAB VCF</span>"
+            "font-size:10px;font-weight:700;margin-left:8px;'>"
+            + {"vcf": "VCF PANEL", "synthetic_vcf": "SYNTHETIC VCF",
+               "synthetic_vcf_plus_lab": "SYNTHETIC VCF + LAB RESULT"}.get(source, "RESEARCH INPUT") + "</span>"
         )
 
     alert_html = ""
@@ -119,7 +122,7 @@ def render_fingerprint_card(result: dict, narrative: dict) -> str:
         {alert_html}
         <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
             <div style="background:#0f2027;border:1px solid #00d4ff;border-radius:10px;padding:14px;">
-                <div style="font-size:11px;color:#00d4ff;letter-spacing:2px;margin-bottom:6px;">🩺 AI CLINICAL SUMMARY</div>
+                <div style="font-size:11px;color:#00d4ff;letter-spacing:2px;margin-bottom:6px;">🩺 RULE-BASED CLINICAL SUMMARY</div>
                 <div style="font-size:14px;color:#e5e7eb;line-height:1.6;">{html.escape(narrative.get('doctor_summary',''))}</div>
             </div>
             <div style="background:#0f2027;border:1px solid #22c55e;border-radius:10px;padding:14px;">
@@ -134,7 +137,7 @@ def render_fingerprint_card(result: dict, narrative: dict) -> str:
     </div>"""
 
 
-def render_recommendations(recommendations: list) -> str:
+def render_recommendations(recommendations: list, notes: list[str] | tuple[()] = ()) -> str:
     colors = {
         "AVOID": ("#ff3232", "#2a0000", "🚫"),
         "CAUTION": ("#ffa500", "#2a1a00", "⚠️"),
@@ -151,22 +154,11 @@ def render_recommendations(recommendations: list) -> str:
             </div>
             <div style="font-size:13px;color:#ddd;margin-bottom:6px;"><b>Gene:</b> {rec['gene']} | <b>Variant:</b> {html.escape(str(rec['variant']))} | <b>Phenotype:</b> {html.escape(rec['phenotype'])}</div>
             <div style="font-size:14px;color:#fff;margin-bottom:6px;">📋 {html.escape(rec['detail'])}</div>
-            <div style="font-size:12px;color:#aaa;">🔬 {html.escape(rec['rationale'])}</div>
+            <div style="font-size:12px;color:#aaa;"><a href="{html.escape(rec['source'], quote=True)}">{html.escape(rec['guideline'])}</a></div>
         </div>"""
-    html_out += "</div>"
-    return html_out
-
-
-def render_population_notes(notes: list) -> str:
-    html_out = "<div style='background:#1a1a2e;border-radius:10px;padding:16px;margin-top:12px;'>"
-    html_out += "<div style='font-size:14px;font-weight:bold;color:#00d4ff;margin-bottom:10px;'>🌍 Global Population Context (CPIC / gnomAD)</div>"
     for note in notes:
-        html_out += f"<div style='font-size:13px;color:#ddd;margin-bottom:6px;'>• {html.escape(note)}</div>"
-    html_out += (
-        "<div style='font-size:11px;color:#aaa;margin-top:10px;'>"
-        "Reference frequencies help clinicians interpret phenotype prevalence across regions. "
-        "Patient-specific decisions use this individual's VCF only.</div></div>"
-    )
+        html_out += f"<div>{html.escape(note)}</div>"
+    html_out += "</div>"
     return html_out
 
 
@@ -185,5 +177,5 @@ def render_vcf_log(logs: list) -> str:
 
 DISCLAIMER = """
 <div style='background:#1a1000;border:1px solid #664400;border-radius:8px;padding:12px;margin-top:12px;'>
-<div style='font-size:12px;color:#ffaa44;'>⚕️ <b>CLINICAL DISCLAIMER:</b> GenoFingerprint AI is CPIC-based decision SUPPORT only.
-Final prescribing is by a qualified clinician. Not CDSCO/FDA approved. Demo uses anonymized research VCF files.</div></div>"""
+<div style='font-size:12px;color:#ffaa44;'><b>Research and education only.</b> Use synthetic VCFs, names and images in this prototype.
+Prescribing decisions require review by a qualified clinician.</div></div>"""
